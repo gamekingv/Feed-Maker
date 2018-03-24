@@ -1,7 +1,7 @@
 {
     "manifest_version": 2,
     "name": "Feed Maker",
-    "version": "0.5.20",
+    "version": "0.5.21",
     "description": "自定义Feed订阅。",
     "icons": {
         "64": "icons/rss-64.png"

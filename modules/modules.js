@@ -284,8 +284,10 @@ let ajax = {
                     break;
                 }
                 case 'json': {
-                    if (!isUnderGlobal && fatherMethod != 'json') parseResult = JSON.parse(result);
+                    let isJSON = typeof (result) == 'object' && Object.prototype.toString.call(result).toLowerCase() == '[object object]' && !result.length;
+                    if (!isJSON) parseResult = JSON.parse(result);
                     else parseResult = result;
+
                     let propertyNames = regexp.split('.');
                     for (let propertyName of propertyNames)
                         parseResult = parseResult[propertyName];
