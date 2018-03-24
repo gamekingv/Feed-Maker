@@ -266,8 +266,10 @@ let ajax = {
             switch (method) {
                 case 'match':
                 case 'replace': {
-                    if (fatherMethod == 'json' && typeof fatherMethod != 'string')
+                    console.log();
+                    if (fatherMethod == 'json' && typeof result != 'string') {
                         result = JSON.stringify(result);
+                    }
                     if (fatherMethod == 'selector') {
                         result = result.innerHTML;
                     }
