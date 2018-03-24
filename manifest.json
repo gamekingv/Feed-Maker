@@ -1,0 +1,30 @@
+{
+    "manifest_version": 2,
+    "name": "Feed Maker",
+    "version": "0.5.20",
+    "description": "自定义Feed订阅。",
+    "icons": {
+        "64": "icons/rss-64.png"
+    },
+    "browser_action": {
+        "browser_style": true,
+        "default_icon": {
+            "16": "icons/rss-16.png",
+            "32": "icons/rss-32.png",
+            "64": "icons/rss-64.png"
+        }
+    },
+    "background": {
+        "scripts": [
+            "modules/config.js",
+            "modules/modules.js",
+            "background.js"
+        ]
+    },
+    "permissions": [
+        "<all_urls>",
+        "downloads",
+        "storage"
+    ],
+    "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self';"
+}

@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Feed Maker</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="assets/icon/rss.ico" type="image/x-icon" />
+    <link href="assets/css/element.css" rel="stylesheet">
+    <link href="assets/css/font-awesome.min.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <script src="assets/js/rss.js"></script>
+</head>
+
+<body>
+    <div id="left-wrapper" class="el-menu--dark">
+        <div id="sidebar" class="el-menu--dark">
+            <el-menu id="sidebar-list" theme="dark" ref="list" v-cloak @open="handleSwitching" @close="handleSwitching">
+                <el-menu-item index="collect" :class="{'is-active': active.type == 'collect'}">
+                    <el-icon name="star-on"></el-icon>
+                    <p class="list-title">我的收藏</p>
+                    <span class="feed-button-mask" @click.stop="feedSelect"></span>
+                </el-menu-item>
+                <el-menu-item index="group-0" :class="itemClassParser('0', 'group')">
+                    <el-icon name="menu"></el-icon>
+                    <p class="list-title">全部</p>
+                    <el-tag type="primary" v-if="totalUnread > 0">{{ unreadParser(totalUnread) }}</el-tag>
+                    <span class="feed-button-mask" @click.stop="feedSelect"></span>
+                </el-menu-item>
+                <template v-for="item in order" v-if="items[`${item.type}-${item.id}`]">
+                    <template v-if="item.type == 'feed'">
+                        <el-menu-item :index="`${item.type}-${item.id}`" :class="itemClassParser(item.id, 'feed')">
+                            <el-icon name="loading" v-if="items[`${item.type}-${item.id}`].pending"></el-icon>
+                            <el-icon name="warning" v-if="items[`${item.type}-${item.id}`].error && !items[`${item.type}-${item.id}`].pending"></el-icon>
+                            <i :class="items[`${item.type}-${item.id}`].customIcon | formatCustomIcon(item.id, 'feed')" v-if="!items[`${item.type}-${item.id}`].pending && !items[`${item.type}-${item.id}`].error"></i>
+                            <p class="list-title">{{ items[`${item.type}-${item.id}`].name }}</p>
+                            <el-tag type="primary" v-if="items[`${item.type}-${item.id}`].unread > 0">{{ unreadParser(items[`${item.type}-${item.id}`].unread) }}
+                            </el-tag>
+                            <span class="feed-button-mask" @click.stop="feedSelect"></span>
+                        </el-menu-item>
+                    </template>
+                    <el-submenu :index="`${item.type}-${item.id}`" v-else>
+                        <div slot="title" :class="itemClassParser(item.id, 'group')">
+                            <el-icon name="loading" v-if="isHas(item.id, 'pending')"></el-icon>
+                            <el-icon name="warning" v-if="isHas(item.id, 'error') && !isHas(item.id, 'pending')"></el-icon>
+                            <i :class="items[`${item.type}-${item.id}`].customIcon | formatCustomIcon(item.id, 'group')" v-if="!isHas(item.id, 'pending') && !isHas(item.id, 'error')"></i>
+                            <p class="list-title">{{ items[`${item.type}-${item.id}`].name }}</p>
+                            <el-tag type="primary" v-if="groupUnread(item.id) > 0">{{ unreadParser(groupUnread(item.id)) }}
+                            </el-tag>
+                            <span class="group-button-mask" @click.stop="feedSelect"></span>
+                            <span class="open-button-mask"></span>
+                        </div>
+                        <template v-for="feed in items[`${item.type}-${item.id}`].feeds" v-if="items[`feed-${feed.id}`]">
+                            <el-menu-item :index="`feed-${feed.id}`" :class="itemClassParser(feed.id, 'feed')">
+                                <el-icon name="loading" v-if="items[`feed-${feed.id}`].pending"></el-icon>
+                                <el-icon name="warning" v-if="items[`feed-${feed.id}`].error && !items[`feed-${feed.id}`].pending"></el-icon>
+                                <i :class="items[`feed-${feed.id}`].customIcon | formatCustomIcon(feed.id, 'feed')" v-if="!items[`feed-${feed.id}`].pending && !items[`feed-${feed.id}`].error"></i>
+                                <p class="list-title">{{ items[`feed-${feed.id}`].name }}</p>
+                                <el-tag type="primary" v-if="items[`feed-${feed.id}`].unread > 0">{{ unreadParser(items[`feed-${feed.id}`].unread) }}</el-tag>
+                                <span class="feed-button-mask" @click.stop="feedSelect"></span>
+                            </el-menu-item>
+                        </template>
+                    </el-submenu>
+                </template>
+            </el-menu>
+            <div id="sidebar-menu" v-cloak>
+                <el-button type="text" icon="plus" @click="add">添加</el-button>
+                <el-button type="text" icon="edit" @click="arrange">整理</el-button>
+                <el-button type="text" icon="setting" @click="setting">设置</el-button>
+            </div>
+        </div>
+    </div>
+    <div id="right-wrapper">
+        <component :is="currentView" :title="title" ref="child"></component>
+    </div>
+
+    <template id="item-list">
+        <div class="main-wrapper" v-loading="loading">
+            <div class="top-panel">
+                <div class="top-title">
+                    {{title}}
+                </div>
+                <div class="top-buttons">
+                    <el-tooltip content="打开主页" placement="bottom" open-delay="800">
+                        <el-button @click="openHomePage" v-show="sidebarList.active.type == 'feed' && sidebarList.items[`feed-${sidebarList.active.id}`].homePage"><i class="fa fa-lg fa-fw fa-home"></i></el-button>
+                    </el-tooltip>
+                    <el-dropdown split-button @click="readAll" @command="readStateChange" trigger="click" v-if="sidebarList.active.type != 'collect'">
+                        <el-icon name="check"></el-icon>
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item command="unread">
+                                <el-radio v-model="readState" label="unread">显示未读</el-radio>
+                            </el-dropdown-item>
+                            <el-dropdown-item command="read">
+                                <el-radio v-model="readState" label="read">显示已读</el-radio>
+                            </el-dropdown-item>
+                            <el-dropdown-item command="all">
+                                <el-radio v-model="readState" label="all">显示全部</el-radio>
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
+                    <el-tooltip content="更新" placement="bottom" open-delay="800" v-if="sidebarList.active.type != 'collect'">
+                        <el-button type="primary" @click="update()"><i class="fa fa-fw fa-refresh"></i></el-button>
+                    </el-tooltip>
+                    <el-button-group>
+                        <el-tooltip content="首页" placement="bottom" open-delay="800" :disabled="currentPage <= 1">
+                            <el-button icon="d-arrow-left" @click="first" :disabled="currentPage <= 1"></el-button>
+                        </el-tooltip>
+                        <el-tooltip content="上一页" placement="bottom" open-delay="800" :disabled="currentPage <= 1">
+                            <el-button icon="arrow-left" @click="prev" :disabled="currentPage <= 1"></el-button>
+                        </el-tooltip>
+                        <el-tooltip content="下一页" placement="bottom" open-delay="800" :disabled="currentPage >= totalPage">
+                            <el-button icon="arrow-right" @click="next" :disabled="currentPage >= totalPage"></el-button>
+                        </el-tooltip>
+                        <el-tooltip content="尾页" placement="bottom" open-delay="800" :disabled="currentPage >= totalPage">
+                            <el-button icon="d-arrow-right" @click="last" :disabled="currentPage >= totalPage"></el-button>
+                        </el-tooltip>
+                    </el-button-group>
+                </div>
+            </div>
+            <div :class="['main-panel', `panel-${sidebarList.active.type}`]" v-show="!loading">
+                <el-alert title="前一次更新时出现错误" type="warning" :description="sidebarList.items[`feed-${sidebarList.active.id}`].errorMessage"
+                    show-icon @close="clearErrorMessage" v-if="sidebarList.active.type == 'feed' && sidebarList.items[`feed-${sidebarList.active.id}`].error">
+                </el-alert>
+                <el-card class="no-item" v-if="items.length === 0">
+                    {{ `当前所选中没有${readState == 'unread' ? '未读' : readState == 'read' ? '已读': '任何'}文章` }}
+                </el-card>
+                <div class="list-panel" v-else>
+                    <div :class="['list-item', {'item-unread': item.state == 'unread'}]" v-for="item in items" :name="item.id" @click="openDetail(item, $event)">
+                        <div class="item-title">
+                            <el-tooltip :content="`标记为${item.state == 'read' ? '未读' : '已读'}`" placement="top" open-delay="800">
+                                <el-checkbox class="read-state" size="small" v-model="item.state" true-label="read" false-label="unread" @change="changeReadState(item, $event)"></el-checkbox>
+                            </el-tooltip>
+                            <i :class="sidebarList.items[`feed-${item.feedid}`].customIcon | formatCustomIcon(item.feedid, 'feed')"></i>
+                            <p class="item-title-content" v-html="item.title"></p>
+                            <el-button-group class="item-buttons">
+                                <el-tooltip content="打开链接" placement="top" open-delay="800">
+                                    <el-button size="mini" @click.stop="visitLink(item)"><i class="fa fa-arrow-right fa-fw"></i></el-button>
+                                </el-tooltip>
+                                <el-tooltip :content="`${item.isCollected ? '取消' : ''}添加到收藏`" placement="top" open-delay="800">
+                                    <el-button size="mini" @click.stop="collectItem(item)"><i :class="`fa fa-fw fa-star${item.isCollected ? '' : '-o'}`"></i></el-button>
+                                </el-tooltip>
+                            </el-button-group>
+                            <el-tooltip :content="sidebarList.buttons[button].name" placement="top" open-delay="800" v-for="button in sidebarList.items[`feed-${item.feedid}`].customButtons">
+                                <el-button class="custom-button" size="mini" @click.stop="customAction(item, button)">
+                                    <i :class="sidebarList.buttons[button].customIcon | formatCustomIcon(button, 'button')"></i>
+                                </el-button>
+                            </el-tooltip>
+                            <el-tag type="gray" close-transition v-if="item.pubDate">
+                                <el-icon name="time"></el-icon>{{ ` ${parseTime(item.pubDate)}` }}
+                            </el-tag>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+    <template id="item-detail">
+        <div>
+            <div class="item-detail-title" v-html="item.title"></div>
+            <div class="item-detail-author" v-if="item.author">
+                <el-tag close-transition><i class="fa fa-user"></i>{{ ` ${item.author}` }}</el-tag>
+            </div>
+            <div class="item-description" v-html="item.description" ref="description" v-show="item.description"></div>
+        </div>
+    </template>
+
+    <template id="add-feed">
+        <div class="main-wrapper">
+            <div class="top-panel">
+                <div class="top-title">
+                    {{title}}
+                </div>
+                <div class="top-buttons">
+                    <el-button type="primary" icon="plus" @click="submitForm">立即添加</el-button>
+                    <el-button @click="resetForm('ruleForm')"><i class="fa fa-undo fa-fw"></i> 重置</el-button>
+                </div>
+            </div>
+            <div class="main-panel">
+                <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="100px">
+                    <el-form-item label="类型" prop="type">
+                        <el-select v-model="ruleForm.type" placeholder="请选择添加的类型" :disabled="edit">
+                            <el-option :label="key" :value="value" v-for="(key, value) in types"></el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="分组" prop="group" v-if="ruleForm.type == 'addFeed' || ruleForm.type == 'addCustomFeed'">
+                        <el-select v-model="ruleForm.group" placeholder="请选择所属分组">
+                            <el-option :label="group.name" :value="group.id" v-for="group in groups"></el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="名称" prop="name" v-if="ruleForm.type">
+                        <el-input v-model.trim="ruleForm.name" :placeholder="`请输入${types[ruleForm.type]}名称`"></el-input>
+                    </el-form-item>
+                    <el-form-item label="自定图标" prop="customIcon" v-if="ruleForm.type">
+                        <el-autocomplete v-model.trim="ruleForm.customIcon" popper-class="my-autocomplete" custom-item="my-icon" @select="handleSelect"
+                            placeholder="请输入内容" :fetch-suggestions="querySearch">
+                            <el-upload slot="append" action="" :show-file-list="false" :http-request="uploadIcon">
+                                <el-button icon="upload2"></el-button>
+                            </el-upload>
+                        </el-autocomplete>
+                    </el-form-item>
+                    <el-form-item label="主页" prop="homePage" v-if="ruleForm.type == 'addFeed' || ruleForm.type == 'addCustomFeed'">
+                        <el-input v-model.trim="ruleForm.homePage" :placeholder="`请输入${types[ruleForm.type]}主页地址`"></el-input>
+                    </el-form-item>
+                    <el-form-item label="地址" prop="link" v-if="ruleForm.type == 'addFeed' || ruleForm.type == 'addCustomFeed'">
+                        <el-input v-model.trim="ruleForm.link" :placeholder="`请输入${types[ruleForm.type]}链接地址`" @change="ruleForm.webContent = ''">
+                            <el-button slot="append" icon="search" @click="fetch" v-if="ruleForm.type == 'addCustomFeed'"></el-button>
+                        </el-input>
+                    </el-form-item>
+                    <el-form-item label="处理步骤" v-if="ruleForm.type == 'addCustomFeed'">
+                        <el-tree node-key="id" empty-text="暂无任何处理步骤" ref="steps" :data="ruleForm.subSteps" :props="stepsProps" :render-content="step"
+                            :default-expand-all="true" :expand-on-click-node="false"></el-tree>
+                    </el-form-item>
+                    <el-form-item label="处理结果" v-if="ruleForm.type == 'addCustomFeed'">
+                        <el-card class="parse-result" v-loading="pending">
+                            <template v-if="typeof parseResult != 'string'">
+                                <div class="result-items" v-for="(result, index) in parseResult">
+                                    <template v-if="result">
+                                        <el-tag type="gray" close-transition>{{ `第${parseInt(index) + 1}项` }}</el-tag>
+                                        <template v-if="Array.isArray(result)">
+                                            <div class="sub-patterns" v-for="(subpattern, index) in result">
+                                                <el-tag close-transition>{{ `$${index}` }}</el-tag>{{ subpattern }}
+                                            </div>
+                                        </template>
+                                        <div v-else>{{ typeof result == 'object' ? result.innerHTML ? result.innerHTML : JSON.stringify(result)
+                                            : result }}
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <div v-else>{{ parseResult }}</div>
+                        </el-card>
+                    </el-form-item>
+                    <el-form-item label="自定义脚本" prop="scripts" v-if="ruleForm.type == 'addCustomButton'">
+                        <el-input type="textarea" :rows="10" placeholder="请编写脚本" v-model="ruleForm.scripts"></el-input>
+                    </el-form-item>
+                    <el-form-item label="应用范围" prop="applyFeeds" v-if="ruleForm.type == 'addCustomButton'">
+                        <el-transfer filterable filter-placeholder="请输入源名称" v-model="ruleForm.applyFeeds" :data="feeds"></el-transfer>
+                    </el-form-item>
+                </el-form>
+            </div>
+        </div>
+    </template>
+
+    <template id="arrange">
+        <el-tabs class="arrange-panel" v-model="activeName" type="border-card">
+            <el-tab-pane label="源/分组" name="feeds">
+                <el-card class="box-card" v-for="(listItems, key) in getAllGroups()">
+                    <div class="list-group" slot="header">
+                        <span>{{ key == 'group-0' ? '全部' : sidebarList.items[key].name }}</span>
+                    </div>
+                    <el-table :data="getItemsOfList(listItems)" border empty-text="暂无任何源或分组">
+                        <el-table-column label="图标" width="65" align="center">
+                            <template scope="scope">
+                                <i :class="scope.row.customIcon | formatCustomIcon(scope.row.id, scope.row.group ? 'feed' : 'group')"></i>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="名称" header-align="center" width="150">
+                            <template scope="scope">
+                                <p class="table-cell">{{ scope.row.name }}</p>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="类型" align="center" width="70">
+                            <template scope="scope">
+                                <p class="table-cell">{{ scope.row.group ? '源' : '分组' }}</p>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="主页" header-align="center">
+                            <template scope="scope">
+                                <p class="table-cell">{{ scope.row.homePage }}</p>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="链接" header-align="center">
+                            <template scope="scope">
+                                <p class="table-cell">{{ scope.row.link }}</p>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="自定义按钮" header-align="center">
+                            <template scope="scope">
+                                <p class="table-cell">
+                                    <el-tag type="primary" v-for="customButton in scope.row.customButtons" close-transition="true"> {{ sidebarList.buttons[customButton].name }}</el-tag>
+                                </p>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="180" align="center">
+                            <template scope="scope">
+                                <div class="table-buttons">
+                                    <el-tooltip content="编辑" placement="top" open-delay="800">
+                                        <el-button size="small" icon="edit" @click="listItemEdit(`${scope.row.group ? 'feed' : 'group'}-${scope.row.id}`)"></el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除" placement="top" open-delay="800">
+                                        <el-button size="small" icon="delete" type="danger" @click="listItemDelete(`${scope.row.group ? 'feed' : 'group'}-${scope.row.id}`)"></el-button>
+                                    </el-tooltip>
+                                    <el-button-group>
+                                        <el-tooltip content="上移" placement="top" open-delay="800" :disabled="scope.$index === 0">
+                                            <el-button size="small" icon="caret-top" :disabled="scope.$index === 0" @click="moveUp(key, scope.$index)"></el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="下移" placement="top" open-delay="800" :disabled="scope.$index === listItems.length - 1">
+                                            <el-button size="small" icon="caret-bottom" :disabled="scope.$index === listItems.length - 1" @click="moveDown(key, scope.$index)"></el-button>
+                                        </el-tooltip>
+                                    </el-button-group>
+                                </div>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </el-card>
+            </el-tab-pane>
+            <el-tab-pane label="自定义按钮" name="buttons">
+                <el-table :data="Object.values(sidebarList.buttons)" border empty-text="暂无任何自定义按钮">
+                    <el-table-column label="图标" width="65" align="center">
+                        <template scope="scope">
+                            <i :class="scope.row.customIcon | formatCustomIcon(scope.row.id, 'button')"></i>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="名称" header-align="center" width="200">
+                        <template scope="scope">
+                            <p class="table-cell">{{ scope.row.name }}</p>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="应用范围" header-align="center" width="300">
+                        <template scope="scope">
+                            <p class="table-cell">
+                                <el-tag type="primary" v-for="applyFeed in getApplyFeeds(scope.row.id)" close-transition="true"> {{ `${sidebarList.items[`feed-${applyFeed}`].name}` }}</el-tag>
+                            </p>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="脚本" header-align="center">
+                        <template scope="scope">
+                            <p class="table-cell">{{ scope.row.scripts }}</p>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="120" align="center">
+                        <template scope="scope">
+                            <el-tooltip content="编辑" placement="top" open-delay="800">
+                                <el-button size="small" icon="edit" @click="buttonEdit(scope.row)"></el-button>
+                            </el-tooltip>
+                            <el-tooltip content="删除" placement="top" open-delay="800">
+                                <el-button size="small" icon="delete" type="danger" @click="buttonDelete(scope.row)"></el-button>
+                            </el-tooltip>
+                        </template>
+                    </el-table-column>
+                </el-table>
+            </el-tab-pane>
+        </el-tabs>
+    </template>
+
+    <template id="setting">
+        <div class="main-wrapper">
+            <div class="top-panel">
+                <div class="top-title">
+                    {{title}}
+                </div>
+                <div class="top-buttons">
+                    <el-tooltip content="导入保存的配置文件" placement="bottom" open-delay="800">
+                        <el-upload action="" :show-file-list="false" accept="application/json" :http-request="importConfig">
+                            <el-button type="primary"><i class="fa fa-fw fa-download"></i> 导入配置</el-button>
+                        </el-upload>
+                    </el-tooltip>
+                    <el-tooltip content="包括所有分组、源、按钮及配置" placement="bottom" open-delay="800">
+                        <el-button @click="exportConfig"><i class="fa fa-fw fa-upload"></i> 导出所有配置</el-button>
+                    </el-tooltip>
+                    <el-tooltip content="包括所有分组、源、按钮及配置" placement="bottom" open-delay="800">
+                        <el-button icon="delete2" @click="clearConfig()">清除所有配置</el-button>
+                    </el-tooltip>
+                </div>
+            </div>
+            <div class="main-panel">
+                <el-form :model="ruleForm" :rules="rules" label-width="200px">
+                    <el-form-item label="每页展示的条目数" prop="itemsPerPage">
+                        <el-input-number v-model="ruleForm.itemsPerPage" @change="handleChange('itemsPerPage', $event)" :min="1"></el-input-number>
+                    </el-form-item>
+                    <el-form-item label="加载超时" prop="timeout">
+                        <el-input-number v-model="ruleForm.timeout" @change="handleChange('timeout', $event)" :min="1"></el-input-number>（秒）
+                    </el-form-item>
+                    <el-form-item label="新标签页打开方式" prop="frequency">
+                        <el-radio-group v-model="ruleForm.openMode" @change="handleChange('openMode', $event)">
+                            <el-radio label="front">前台</el-radio>
+                            <el-radio label="back">后台</el-radio>
+                        </el-radio-group>
+                    </el-form-item>
+                    <el-form-item label="自动更新">
+                        <el-switch v-model="ruleForm.isAutoRefresh" @change="handleChange('isAutoRefresh', $event)"></el-switch>
+                    </el-form-item>
+                    <el-form-item label="自动更新频率" prop="frequency">
+                        <el-input-number v-model="ruleForm.frequency" @change="handleChange('frequency', $event)" :min="1" :disabled="!ruleForm.isAutoRefresh"></el-input-number>（分钟）
+                    </el-form-item>
+                    <el-form-item>
+                        <el-tooltip content="恢复默认设置" placement="bottom" open-delay="800">
+                            <el-button @click="reset"><i class="fa fa-fw fa-undo"></i> 恢复默认设置</el-button>
+                        </el-tooltip>
+                    </el-form-item>
+                </el-form>
+            </div>
+        </div>
+    </template>
+
+
+    <template id="step-item">
+        <div class="custom-step-buttons" v-if="ruleForm.id == 'root'">
+            <el-button type="primary" icon="plus" size="small" @click="addStep">添加一个根处理步骤</el-button>
+            <el-upload action="" :show-file-list="false" accept="application/json" :http-request="importSteps">
+                <el-button size="small"><i class="fa fa-fw fa-download"></i> 导入处理步骤</el-button>
+            </el-upload>
+            <el-button size="small" @click="exportSteps"><i class="fa fa-fw fa-upload"></i> 导出处理步骤</el-button>
+        </div>
+        <el-form class="custom-steps" :model="ruleForm" :rules="rules" ref="ruleForm" v-else>
+            <el-form-item prop="regexp" :show-message="false">
+                <el-input size="small" v-model="ruleForm.regexp" placeholder="请输入表达式">
+                    <el-select v-model="ruleForm.method" slot="prepend" placeholder="请选择">
+                        <el-option label="匹配" value="match"></el-option>
+                        <el-option label="替换" value="replace"></el-option>
+                        <el-option label="JSON" value="json"></el-option>
+                        <el-option label="选择器" value="selector"></el-option>
+                    </el-select>
+                </el-input>
+            </el-form-item>
+            <el-form-item>
+                <el-popover ref="subpattern" placement="top" title="设置父结果的子表达式编号">
+                    <el-input-number size="small" v-model="ruleForm.subPattern" :min="0"></el-input-number>
+                </el-popover>
+                <el-button size="small" v-popover:subpattern>{{`$${ruleForm.subPattern}`}}</el-button>
+            </el-form-item>
+            <el-form-item>
+                <el-checkbox v-model="ruleForm.isGlobal" :disabled="ruleForm.method != 'replace' && ruleForm.isUnderGlobal && !ruleForm.isGlobal"
+                    @change="setGlobal">全局</el-checkbox>
+                <el-checkbox v-model="ruleForm.isCase" v-if="ruleForm.method == 'match' || ruleForm.method == 'replace'">区分大小写</el-checkbox>
+            </el-form-item>
+            <el-form-item>
+                <el-input size="small" v-model="ruleForm.repalceExp" placeholder="请输入表达式" v-if="ruleForm.method == 'replace'"></el-input>
+            </el-form-item>
+            <el-form-item class="custom-steps-result" v-if="ruleForm.isResultItem">
+                <el-popover ref="resultpattern" placement="top" title="设置输出结果使用的子表达式编号">
+                    <el-input-number size="small" v-model="ruleForm.resultPattern" :min="0"></el-input-number>
+                </el-popover>
+                <el-popover ref="resulttype" placement="top" title="选择输出结果类型">
+                    <el-radio-group v-model="ruleForm.resultType">
+                        <el-radio size="small" :label="key" v-for="(type, key) in resultTypes">{{ `${type}` }}</el-radio>
+                    </el-radio-group>
+                </el-popover>
+                <el-button-group>
+                    <el-button size="small" type="primary" v-popover:resultpattern>{{ `$${ruleForm.resultPattern}` }}</el-button>
+                    <el-button size="small" type="primary" v-popover:resulttype>{{ resultTypes[ruleForm.resultType] }}</el-button>
+                </el-button-group>
+            </el-form-item>
+            <el-form-item class="custom-steps-action">
+                <el-dropdown trigger="click" @command="handleCommand">
+                    <el-button size="small" type="primary" icon="setting"></el-button>
+                    <el-dropdown-menu slot="dropdown">
+                        <el-dropdown-item command="runStep">执行此处理步骤</el-dropdown-item>
+                        <el-dropdown-item command="setAsResult">{{ `${ruleForm.isResultItem ? '取消' : ''}设定为结果` }}</el-dropdown-item>
+                        <el-dropdown-item divided command="addStep">添加一个子处理步骤</el-dropdown-item>
+                        <el-dropdown-item command="insertBrotherStep">插入一个同级处理步骤</el-dropdown-item>
+                        <el-dropdown-item command="insertFatherStep">插入一个父处理步骤</el-dropdown-item>
+                        <el-dropdown-item divided command="deleteStep">仅删除此步骤</el-dropdown-item>
+                        <el-dropdown-item command="deleteStepAndChild">删除此步骤及其子步骤</el-dropdown-item>
+                        <el-dropdown-item command="deleteChildStep">删除所有子步骤</el-dropdown-item>
+                    </el-dropdown-menu>
+                </el-dropdown>
+            </el-form-item>
+        </el-form>
+    </template>
+
+</body>
+<style id="custom-icons" v-html="iconStyles"></style>
+<script src="assets/js/vue.min.js"></script>
+<script src="assets/js/element.js"></script>
+<script src="assets/js/components.js"></script>
+<script src="assets/js/feed.js"></script>
+
+</html>
